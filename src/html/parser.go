@@ -76,20 +76,6 @@ func (parser *HtmlParser) ScrapeCategoryIdFrom(data []byte) (int, error) {
 	return -1, fmt.Errorf("not found")
 }
 
-func (parser *HtmlParser) ScrapeLocaleFrom(data []byte) (string, error) {
-  if parser == nil {
-    return "", fmt.Errorf("cannot call methods on nil reference")
-  }
-
-	pattern := regexp.MustCompile(`cultureInfo\s?=\s?\"(.{1,10})\"\;`)
-	groups := pattern.FindStringSubmatch(string(data))
-	if len(groups) > 1 {
-    return groups[1], nil
-	}
-
-	return "", fmt.Errorf("not found")
-}
-
 func (parser *HtmlParser) ScrapeFilterPropertiesFrom(data []byte) ([]FilterProperty, error) {
   if parser == nil {
     return nil, fmt.Errorf("cannot call methods on nil reference")

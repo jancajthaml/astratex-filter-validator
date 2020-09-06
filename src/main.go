@@ -20,10 +20,59 @@ import (
 
 	"github.com/jancajthaml/astratex-filter-validator/http"
 	"github.com/jancajthaml/astratex-filter-validator/html"
-	"github.com/jancajthaml/astratex-filter-validator/validator"
+
+	"github.com/360EntSecGroup-Skylar/excelize/v2"
 )
 
-//var baseUri = "www.astratex.gr"
+
+var baseUri = ""
+
+func getCategories() []html.Category {
+	client := http.NewHttpClient()
+	parser := html.NewHtmlParser()
+
+	resp, err := client.Get(fmt.Sprintf("https://%s/", baseUri))
+	if err != nil {
+		return nil
+	}
+
+	categories, err := parser.ScrapeCategoriesFrom(resp.Data)
+	if err != nil {
+		return nil
+	}
+
+	return categories
+}
+
+func getFilterPropertiesForCategory(category html.Category) []html.FilterProperty {
+	client := http.NewHttpClient()
+	parser := html.NewHtmlParser()
+
+	resp, err := client.Get(fmt.Sprintf("https://%s%s", baseUri, category.Rel))
+	if err != nil {
+		return nil
+	}
+
+	catId, err := parser.ScrapeCategoryIdFrom(resp.Data)
+	if err != nil {
+		return nil
+	}
+
+	category.Id = catId
+
+	resp, err = client.Get(fmt.Sprintf("https://%s/ajax/commodityContent.aspx?cat=%d&paramFilterInit=1", baseUri, category.Id))
+	if err != nil {
+		return nil
+	}
+
+	properties, err := parser.ScrapeFilterPropertiesFrom(resp.Data)
+	if err != nil {
+		return nil
+	}
+
+	return properties
+
+}
 
 func main() {
 
@@ -32,70 +81,46 @@ func main() {
 		panic("usage: \"<prog> www.astratex.gr\"")
 	}
 
-	baseUri := args[0]
+	f := excelize.NewFile()
 
-	//fmt.Println("Hello")
-
-	client := http.NewHttpClient()
-	parser := html.NewHtmlParser()
-
-
-	resp, err := client.Get(fmt.Sprintf("https://%s/", baseUri))
-	if err != nil {
-		panic(err.Error())
-	}
-
-	categories, err := parser.ScrapeCategoriesFrom(resp.Data)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	locale, err := parser.ScrapeLocaleFrom(resp.Data)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	check := validator.NewPropertiesValidator(locale)
-
+	baseUri = args[0]
+	categories := getCategories()
 	for _, category := range categories {
-		//fmt.Printf("Validating category %s at %s\n", category.Title, category.Rel)
+		f.NewSheet(category.Title)
+		f.SetSheetFormatPr(category.Title,
+			excelize.BaseColWidth(1.0),
+			excelize.DefaultColWidth(1.0),
+			excelize.DefaultRowHeight(1.0),
+			excelize.CustomHeight(false),
+			excelize.ZeroHeight(false),
+			excelize.ThickTop(true),
+			excelize.ThickBottom(true),
+		)
 
-		resp, err = client.Get(fmt.Sprintf("https://%s%s", baseUri, category.Rel))
-		if err != nil {
-			panic(err.Error())
-		}
+		var aWidth = 1
+		var bWidth = 1
 
-		catId, err := parser.ScrapeCategoryIdFrom(resp.Data)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		category.Id = catId
-
-		resp, err = client.Get(fmt.Sprintf("https://%s/ajax/commodityContent.aspx?cat=%d&paramFilterInit=1", baseUri, category.Id))
-		if err != nil {
-			panic(err.Error())
-		}
-
-		properties, err := parser.ScrapeFilterPropertiesFrom(resp.Data)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		//fmt.Printf("Found %d filter properties\n", len(properties))
-
-		for _, property := range properties {
-			ok, err := check.Validate(property.Value)
-			if err != nil {
-				panic(err.Error())
+		properties := getFilterPropertiesForCategory(category)
+		for idx, property := range properties {
+			uri := fmt.Sprintf("https://%s%s", baseUri, category.Rel)
+			if len(property.Value) > aWidth {
+				aWidth = len(property.Value)
 			}
-
-			if !ok {
-				fmt.Printf("Invalid filter property \"%s\" of category %s at https://%s%s\n", property.Value, category.Title, baseUri, category.Rel)
+			if len(uri) > bWidth {
+				bWidth = len(uri)
 			}
+			f.SetCellValue(category.Title, fmt.Sprintf("A%d", idx+1), property.Value)
+			f.SetCellValue(category.Title, fmt.Sprintf("B%d", idx+1), uri)
+			f.SetCellHyperLink(category.Title, fmt.Sprintf("B%d", idx+1), uri, "External")
 		}
 
+		f.SetColWidth(category.Title, "A", "A", float64(aWidth*2))
+		f.SetColWidth(category.Title, "B", "B", float64(bWidth*2))
 	}
 
-	//fmt.Println("Bye")
+	f.DeleteSheet("Sheet1")
+
+	if err := f.SaveAs(fmt.Sprintf("categories_filters_properties_%s.xlsx", baseUri)); err != nil {
+    panic(err.Error())
+  }
 }
